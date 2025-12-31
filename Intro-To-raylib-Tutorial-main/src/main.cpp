@@ -6,6 +6,7 @@
 #include <ctime>
 #include <cmath>
 #include <iostream>
+#include <string>
 
 // --- DIMENSIONS ---
 constexpr int SCREEN_WIDTH = 1600;
@@ -20,6 +21,38 @@ constexpr float SAFE_DISTANCE = 45.0f;
 constexpr int ROAD_Y_TOP = 110;
 constexpr int ROAD_Y_BOTTOM = 280;
 
+// --- FIX: ROBUST STAR DRAWING ---
+// Draws triangles in both winding orders to guarantee visibility
+void DrawStar(int cx, int cy, float outerRadius, float innerRadius, Color color) {
+    Vector2 points[10];
+    Vector2 center = { (float)cx, (float)cy };
+    
+    // Calculate the 10 points of the star
+    for (int i = 0; i < 10; i++) {
+        float angle = -PI / 2.0f + i * (PI / 5.0f); // Start at top (-90 deg)
+        float r = (i % 2 == 0) ? outerRadius : innerRadius;
+        points[i].x = cx + cosf(angle) * r;
+        points[i].y = cy + sinf(angle) * r;
+    }
+    
+    // Draw triangles connecting center to points
+    for (int i = 0; i < 10; i++) {
+        Vector2 p1 = points[i];
+        Vector2 p2 = points[(i + 1) % 10];
+        
+        // Draw both windings to ensure it's not culled (invisible)
+        DrawTriangle(p1, p2, center, color); 
+        DrawTriangle(p2, p1, center, color); 
+    }
+}
+
+enum MissionType {
+    MISSION_NONE,
+    MISSION_CALL_AMBULANCE,
+    MISSION_CALL_TOW,
+    MISSION_CALL_BUS
+};
+
 enum AmbulanceState {
     PATROL, TO_ACCIDENT, WAIT_AT_ACCIDENT, TO_HOSPITAL, WAIT_AT_HOSPITAL, LEAVING
 };
@@ -28,7 +61,6 @@ enum BusState {
     BUS_TO_SCHOOL, BUS_WAIT_AT_SCHOOL, BUS_LEAVING
 };
 
-// --- PROFESSIONAL TRAFFIC LIGHT UPDATE ---
 class TrafficLight {
 private:
     Rectangle box;
@@ -36,10 +68,8 @@ private:
     bool red;
     float cycleTime;
 public:
-    // Increased box size slightly to accommodate the new effects
     TrafficLight(float x, float y, float cycle = 5.0f)
-        : box({ x, y, 30, 80 }), timer(0.0f), red(true), cycleTime(cycle) {}
-    
+        : box({ x, y, 20, 60 }), timer(0.0f), red(true), cycleTime(cycle) {}
     void Update(float delta) {
         timer += delta;
         if (timer >= cycleTime) {
@@ -47,62 +77,14 @@ public:
             red = !red;
         }
     }
-
-    // --- NEW PROFESSIONAL DRAW METHOD ---
     void Draw() const {
-        // Define colors for professionalism
-        Color casingColor = { 30, 30, 30, 255 };   // Dark charcoal metal
-        Color trimColor = { 70, 70, 70, 255 };     // Lighter gray edge
-        Color offRed = { 50, 0, 0, 255 };          // Dark unlit glass
-        Color offGreen = { 0, 50, 0, 255 };        // Dark unlit glass
-        Color glassShine = { 255, 255, 255, 200 }; // Specular highlight
-
-        // 1. Draw Housing (Casing) with rounded corners and trim
-        DrawRectangleRounded(box, 0.3f, 10, casingColor);
-        DrawRectangleRoundedLines(box, 0.3f, 3.0f, trimColor);
-
-        // Calculate positions and size for lights
-        float centerX = box.x + box.width / 2;
-        float lightRadius = 12.0f;
-        Vector2 redPos = { centerX, box.y + box.height / 4 };
-        Vector2 greenPos = { centerX, box.y + (box.height / 4) * 3 };
-
-        // 2. Draw the "Visors" (hoods above lights)
-        DrawRectangle(box.x - 2, redPos.y - lightRadius - 5, box.width + 4, 4, trimColor);
-        DrawRectangle(box.x - 2, greenPos.y - lightRadius - 5, box.width + 4, 4, trimColor);
-
-        // 3. Draw the inactive lens bases (dark glass)
-        DrawCircleV(redPos, lightRadius, offRed);
-        DrawCircleLines((int)redPos.x, (int)redPos.y, lightRadius, BLACK); // Thin outline
-
-        DrawCircleV(greenPos, lightRadius, offGreen);
-        DrawCircleLines((int)greenPos.x, (int)greenPos.y, lightRadius, BLACK); // Thin outline
-
-        // 4. Draw the ACTIVE light with effects
-        if (red) {
-            // Red ON
-            // Glow Halo (Bloom effect) behind the light
-            DrawCircleGradient((int)redPos.x, (int)redPos.y, lightRadius * 2.5f, Fade(RED, 0.5f), Fade(RED, 0.0f));
-            // The bright lens
-            DrawCircleV(redPos, lightRadius, RED);
-            // Specular reflection highlight (shiny glass look)
-            DrawCircle((int)redPos.x - 4, (int)redPos.y - 4, 3.0f, glassShine);
-        } else {
-            // Green ON
-            // Glow Halo
-            DrawCircleGradient((int)greenPos.x, (int)greenPos.y, lightRadius * 2.5f, Fade(GREEN, 0.5f), Fade(GREEN, 0.0f));
-            // The bright lens
-            DrawCircleV(greenPos, lightRadius, GREEN);
-            // Specular reflection highlight
-            DrawCircle((int)greenPos.x - 4, (int)greenPos.y - 4, 3.0f, glassShine);
-        }
+        DrawRectangleRec(box, DARKGRAY);
+        DrawCircle((int)(box.x + 10), (int)(box.y + 15), 8.0f, red ? RED : Fade(RED, 0.3f));
+        DrawCircle((int)(box.x + 10), (int)(box.y + 45), 8.0f, !red ? GREEN : Fade(GREEN, 0.3f));
     }
-    // ------------------------------------
-
     bool IsRed() const { return red; }
-    // Adjusted stop line calculation for new box width
     float GetStopLineX(bool rightToLeft) const {
-        return rightToLeft ? (box.x - 30) : (box.x + box.width + 30);
+        return rightToLeft ? (box.x - 40) : (box.x + box.width + 40);
     }
 };
 
@@ -282,9 +264,15 @@ private:
     float screenAlertTimer = 0.0f;
     Accident currentAccident;
 
+    int playerStars = 3;
+    MissionType currentMission = MISSION_NONE;
+    float missionTimer = 0.0f;
+    float missionMaxTime = 8.0f;
+    float busCooldown = 15.0f;
+    bool gameOver = false;
+
 public:
-    // Updated position for lightTop to account for new size
-    Simulation() : lightTop(WORLD_WIDTH / 2 - 80, ROAD_Y_TOP - 100, 5.0f), lightBottom(WORLD_WIDTH / 2 - 150, ROAD_Y_BOTTOM + ROAD_HEIGHT + 20, 5.0f), carSpawnTimerTop(0.0f), carSpawnTimerBottom(0.0f) {
+    Simulation() : lightTop(WORLD_WIDTH / 2 - 80, ROAD_Y_TOP - 80, 5.0f), lightBottom(WORLD_WIDTH / 2 - 150, ROAD_Y_BOTTOM + ROAD_HEIGHT + 20, 5.0f), carSpawnTimerTop(0.0f), carSpawnTimerBottom(0.0f) {
         for (int i = 0; i < 3; i++) { laneYTop[i] = (float)ROAD_Y_TOP + 10.0f + i * (float)LANE_HEIGHT; laneYBottom[i] = (float)ROAD_Y_BOTTOM + 10.0f + i * (float)LANE_HEIGHT; }
         currentAccident = { false, false, 0, 0, nullptr, nullptr };
     }
@@ -307,6 +295,24 @@ public:
         camera.zoom = 1.0f;
     }
 
+    // --- RESTART GAME LOGIC ---
+    void Reset() {
+        vehiclesTop.clear();
+        vehiclesBottom.clear();
+        currentAccident = { false, false, 0, 0, nullptr, nullptr };
+        currentMission = MISSION_NONE;
+        playerStars = 3;
+        gameOver = false;
+        ambulanceActive = false;
+        waitingForTowToLeave = false;
+        screenAlertOn = false;
+        missionTimer = 0.0f;
+        busCooldown = 15.0f;
+        
+        camera.target = { WORLD_WIDTH / 2.0f, SCREEN_HEIGHT / 2.0f };
+        camera.zoom = 1.0f;
+    }
+
     void SpawnCarTop() {
         int lane = GetRandomValue(0, 2);
         float speed = 2.0f + GetRandomValue(0, 5) / 10.0f;
@@ -319,7 +325,11 @@ public:
         Color c = { (unsigned char)GetRandomValue(80, 255), (unsigned char)GetRandomValue(80, 255), (unsigned char)GetRandomValue(80, 255), 255 };
         vehiclesBottom.push_back(std::make_unique<Car>(WORLD_WIDTH + 1500, laneYBottom[lane], speed, c, false, carImages[GetRandomValue(0, 4)]));
     }
-    void CallSchoolBus() { vehiclesBottom.push_back(std::make_unique<SchoolBus>(WORLD_WIDTH + 1500, laneYBottom[2], 2.5f)); }
+    
+    void CallSchoolBus() { 
+        if (currentMission == MISSION_CALL_BUS) { currentMission = MISSION_NONE; }
+        vehiclesBottom.push_back(std::make_unique<SchoolBus>(WORLD_WIDTH + 1500, laneYBottom[2], 2.5f)); 
+    }
 
     void TriggerRandomAccident() {
         if (waitingForTowToLeave) return; 
@@ -341,6 +351,7 @@ public:
                             currentAccident.pending = true; currentAccident.car1 = v2; currentAccident.car2 = v1; waitingForTowToLeave = true;
                             v1->isReckless = true; v2->isAccidentTarget = true; v1->laneLock = true; v2->laneLock = true; 
                             v1->SetSpeed(v1->GetSpeed() * 2.8f); v2->SetSpeed(v2->GetSpeed() * 0.4f);
+                            currentMission = MISSION_CALL_AMBULANCE; missionTimer = missionMaxTime;
                             return;
                         }
                     }
@@ -348,20 +359,26 @@ public:
             }
         }
     }
+    
     void CallAmbulance() {
         if (!currentAccident.active && !currentAccident.pending) TriggerRandomAccident(); 
+        if (currentMission == MISSION_CALL_AMBULANCE) { currentMission = MISSION_NONE; }
         PlaySound(siren);
         auto amb = std::make_unique<Ambulance>(WORLD_WIDTH + 1500, laneYBottom[1], 4.5f, false);
         if (currentAccident.active) { amb->AssignAccident(currentAccident.x, currentAccident.y); amb->SetTargetY(currentAccident.y); }
         vehiclesBottom.push_back(std::move(amb)); ambulanceActive = true;
     }
+
     void CallDepannage() {
         if (!currentAccident.active) return;
+        if (currentMission == MISSION_CALL_TOW) { currentMission = MISSION_NONE; }
         auto tow = std::make_unique<Depannage>(WORLD_WIDTH + 1500, currentAccident.y, 2.5f);
         tow->SetTarget(currentAccident.x); vehiclesBottom.push_back(std::move(tow));
     }
 
     void Update(float delta) {
+        if (gameOver) return;
+
         float wheel = GetMouseWheelMove();
         if (wheel != 0) { camera.zoom += wheel * 0.1f; if (camera.zoom < 0.5f) camera.zoom = 0.5f; if (camera.zoom > 2.0f) camera.zoom = 2.0f; }
         if (IsKeyDown(KEY_RIGHT) || (IsMouseButtonDown(MOUSE_BUTTON_RIGHT) && GetMouseDelta().x < 0)) camera.target.x += 15.0f / camera.zoom;
@@ -370,7 +387,27 @@ public:
 
         carSpawnTimerTop += delta; if (carSpawnTimerTop >= GetRandomValue(40, 70) / 10.0f) { carSpawnTimerTop = 0.0f; SpawnCarTop(); } 
         carSpawnTimerBottom += delta; if (carSpawnTimerBottom >= GetRandomValue(40, 70) / 10.0f) { carSpawnTimerBottom = 0.0f; SpawnCarBottom(); }
+        
         if (GetRandomValue(0, 1000) < 5) TriggerRandomAccident();
+        
+        busCooldown -= delta;
+        if (busCooldown <= 0 && currentMission == MISSION_NONE) {
+            if (GetRandomValue(0, 100) < 2) { 
+                currentMission = MISSION_CALL_BUS;
+                missionTimer = missionMaxTime;
+                busCooldown = 15.0f;
+            }
+        }
+
+        if (currentMission != MISSION_NONE) {
+            missionTimer -= delta;
+            if (missionTimer <= 0.0f) {
+                playerStars--;
+                currentMission = MISSION_NONE;
+                if (playerStars <= 0) gameOver = true;
+            }
+        }
+
         lightTop.Update(delta); lightBottom.Update(delta);
 
         vehiclesTop.erase(std::remove_if(vehiclesTop.begin(), vehiclesTop.end(), [](const std::unique_ptr<Vehicle>& v) { return v->IsOffScreen(); }), vehiclesTop.end());
@@ -407,7 +444,16 @@ public:
         }
         for (auto& v : vehiclesBottom) { if (v->isTowed && v->myTower != nullptr) { v->SetX(v->myTower->GetX() + v->towOffsetX); v->SetY(v->myTower->GetY()); } }
 
-        if (activeAmbulance) { if (activeAmbulance->state == TO_HOSPITAL) activeAmbulance->SetTargetY(laneYBottom[2]); else if (activeAmbulance->state == TO_ACCIDENT && currentAccident.active) activeAmbulance->SetTargetY(currentAccident.y); }
+        if (activeAmbulance) { 
+            if (activeAmbulance->state == TO_HOSPITAL) {
+                if (currentAccident.active && !activeTow && currentMission == MISSION_NONE) {
+                    currentMission = MISSION_CALL_TOW;
+                    missionTimer = missionMaxTime;
+                }
+                activeAmbulance->SetTargetY(laneYBottom[2]); 
+            }
+            else if (activeAmbulance->state == TO_ACCIDENT && currentAccident.active) activeAmbulance->SetTargetY(currentAccident.y); 
+        }
 
         for (size_t i = 0; i < vehiclesBottom.size(); ++i) {
             auto& v = vehiclesBottom[i]; if (v->isCrashed || v->isTowed) continue; 
@@ -500,9 +546,7 @@ public:
             int sWidth = seaTexture.width; if (sWidth == 0) sWidth = 100;
             float sHeight = (float)seaTexture.height;
             float time = (float)GetTime();
-            
             DrawRectangle(-2000, 650, WORLD_WIDTH + 4000, 500, { 237, 201, 175, 255 }); 
-
             for (int i = -2000; i < WORLD_WIDTH + 2000; i += sWidth) {
                 bool flip = ((i / sWidth) % 2 != 0); 
                 float widthFactor = flip ? -1.0f : 1.0f;
@@ -518,11 +562,22 @@ public:
         
         DrawTexture(hospitalTexture, 10, ROAD_Y_BOTTOM + ROAD_HEIGHT + 10, WHITE);
 
-        // --- ARROWS & LABELS ---
         float time = (float)GetTime();
         float bounce = sinf(time * 6.0f) * 8.0f; 
 
-        // 1. HOSPITAL ARROW (Red)
+        // --- ARROW 1: ACCIDENT ---
+        if (currentAccident.active) {
+            float accX = currentAccident.x;
+            float accY = currentAccident.y - 100.0f + bounce;
+            Color accCol = Fade(RED, 0.9f);
+            
+            // Draw big red arrow pointing down at the crash
+            DrawRectangle((int)accX - 10, (int)accY, 20, 40, accCol);
+            DrawTriangle({ accX, accY + 70 }, { accX + 25, accY + 40 }, { accX - 25, accY + 40 }, accCol);
+            DrawText("ACCIDENT!", (int)accX - 50, (int)accY - 30, 20, RED);
+        }
+
+        // --- ARROW 2: HOSPITAL ---
         float hospCenterX = 75.0f; 
         float hospBaseY = 350.0f + bounce;
         Color arrowCol = Fade(RED, 0.8f); 
@@ -530,16 +585,15 @@ public:
         DrawTriangle({ hospCenterX, hospBaseY + 70 }, { hospCenterX + 25, hospBaseY + 40 }, { hospCenterX - 25, hospBaseY + 40 }, arrowCol);
         DrawText("HOSPITAL", hospCenterX - 40, hospBaseY - 30, 20, RED);
 
-        // 2. SCHOOL ARROW (Orange)
+        // --- ARROW 3: SCHOOL ---
         float schoolCenterX = WORLD_WIDTH / 2 - 65.0f;
         float schoolBaseY = 350.0f + bounce; 
         Color schoolArrowCol = Fade(ORANGE, 0.8f);
         DrawRectangle(schoolCenterX - 10, schoolBaseY, 20, 40, schoolArrowCol);
         DrawTriangle({ schoolCenterX, schoolBaseY + 70 }, { schoolCenterX + 25, schoolBaseY + 40 }, { schoolCenterX - 25, schoolBaseY + 40 }, schoolArrowCol);
         DrawText("SCHOOL", schoolCenterX - 35, schoolBaseY - 30, 20, ORANGE);
-        // -----------------------
         
-        // BOTTOM HOUSES
+        // HOUSES
         DrawTexture(houseTextures[1], -1500, 440, WHITE);
         DrawTexture(houseTextures[2], -1250, 423, WHITE);
         DrawTexture(houseTextures[1], -1020, 440, WHITE);
@@ -561,8 +615,6 @@ public:
         DrawTexture(houseTextures[0], 4300, 410, WHITE);
         DrawTexture(houseTextures[1], 4700, 440, WHITE);
         DrawTexture(houseTextures[2], 5000, 423, WHITE);
-        
-        // TOP HOUSES
         DrawTexture(houseTextures[1], -1500, -125, WHITE);
         DrawTexture(houseTextures[2], -1250, -125, WHITE);
         DrawTexture(houseTextures[1], -1020, -125, WHITE);
@@ -593,17 +645,55 @@ public:
         for (auto& v : vehiclesBottom) v->Draw();
     }
 
-    void DrawUI() const {
+    void DrawUI() {
+        if (gameOver) {
+            DrawRectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, Fade(BLACK, 0.8f));
+            DrawText("GAME OVER", SCREEN_WIDTH/2 - 200, SCREEN_HEIGHT/2 - 100, 80, RED);
+            DrawText("Mission Failed! No Stars Left.", SCREEN_WIDTH/2 - 180, SCREEN_HEIGHT/2, 30, WHITE);
+            
+            // --- RESTART BUTTON ---
+            Rectangle btn = { (float)SCREEN_WIDTH/2 - 100, (float)SCREEN_HEIGHT/2 + 80, 200, 60 };
+            Vector2 mouse = GetMousePosition();
+            bool hover = CheckCollisionPointRec(mouse, btn);
+            
+            DrawRectangleRec(btn, hover ? DARKGREEN : GREEN);
+            DrawRectangleLinesEx(btn, 3, WHITE);
+            DrawText("RESTART", (int)btn.x + 35, (int)btn.y + 15, 30, WHITE);
+            
+            if (hover && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+                Reset(); // Call Reset logic
+            }
+            return;
+        }
+
         if (screenAlertOn) {
             DrawRectangle(0, 0, 20, SCREEN_HEIGHT, Fade(RED, 0.7f));
             DrawRectangle(SCREEN_WIDTH - 20, 0, 20, SCREEN_HEIGHT, Fade(RED, 0.7f));
         }
         
-        if(currentAccident.active) DrawText("ACCIDENT ACTIVE!", SCREEN_WIDTH/2 - 100, 50, 20, RED);
-        if(currentAccident.pending) DrawText("IMPACT IMMINENT...", SCREEN_WIDTH/2 - 110, 50, 20, ORANGE);
-        if(waitingForTowToLeave && !currentAccident.active && !currentAccident.pending) 
-             DrawText("CLEANING UP...", SCREEN_WIDTH/2 - 80, 50, 20, GOLD);
+        // --- DRAW STARS (Visible 5-Pointed) ---
+        DrawText(TextFormat("LIVES:"), 20, 80, 30, GOLD);
+        for(int i=0; i<playerStars; i++) {
+            DrawStar(160 + (i * 45), 95, 15, 7, GOLD);
+        }
 
+        // --- DRAW MISSION STATUS ---
+        if (currentMission != MISSION_NONE) {
+            std::string msg = "";
+            Color c = WHITE;
+            if (currentMission == MISSION_CALL_AMBULANCE) { msg = "MISSION: CALL AMBULANCE (E)!"; c = RED; }
+            else if (currentMission == MISSION_CALL_TOW) { msg = "MISSION: CALL TOW TRUCK (D)!"; c = ORANGE; }
+            else if (currentMission == MISSION_CALL_BUS) { msg = "MISSION: SEND SCHOOL BUS (S)!"; c = YELLOW; }
+            
+            DrawRectangle(SCREEN_WIDTH/2 - 250, 10, 500, 60, Fade(BLACK, 0.7f));
+            DrawText(msg.c_str(), SCREEN_WIDTH/2 - 200, 25, 25, c);
+            
+            float ratio = missionTimer / missionMaxTime;
+            DrawRectangle(SCREEN_WIDTH/2 - 240, 55, (int)(480 * ratio), 10, c);
+        }
+
+        if(currentAccident.active) DrawText("ACCIDENT ACTIVE!", SCREEN_WIDTH/2 - 100, 80, 20, RED);
+        
         DrawText("Use MOUSE WHEEL to Zoom", 20, 20, 20, WHITE);
         DrawText("Use ARROW KEYS to Pan", 20, 45, 20, WHITE);
     }
@@ -630,12 +720,11 @@ public:
         DrawRectangleLines(boxX, boxY, 700, 320, LIGHTGRAY);
         
         DrawText("CONTROLS & RULES:", boxX + 20, boxY + 20, 30, WHITE);
-        DrawText("- Press 'A' to cause a random accident.", boxX + 40, boxY + 70, 20, WHITE);
-        DrawText("- Press 'E' to call an Ambulance (Must have active accident).", boxX + 40, boxY + 110, 20, WHITE);
-        DrawText("- Press 'D' to call the Tow Truck (After ambulance leaves).", boxX + 40, boxY + 150, 20, WHITE);
-        DrawText("- Press 'S' to send the School Bus.", boxX + 40, boxY + 190, 20, WHITE);
-        DrawText("- SCROLL MOUSE to Zoom. RIGHT CLICK/ARROWS to Pan.", boxX + 40, boxY + 230, 20, YELLOW);
-        DrawText("- The Bus will stop at the School (Middle of map).", boxX + 40, boxY + 260, 20, WHITE);
+        DrawText("- Complete MISSIONS to keep your STARS.", boxX + 40, boxY + 70, 20, GOLD);
+        DrawText("- Press 'E' when Accident occurs (Red Mission).", boxX + 40, boxY + 110, 20, WHITE);
+        DrawText("- Press 'D' after Ambulance leaves (Orange Mission).", boxX + 40, boxY + 150, 20, WHITE);
+        DrawText("- Press 'S' for School Run (Yellow Mission).", boxX + 40, boxY + 190, 20, WHITE);
+        DrawText("- If Timer runs out, you lose a STAR.", boxX + 40, boxY + 230, 20, RED);
         
         Rectangle btnBounds = { (float)SCREEN_WIDTH/2 - 100, (float)SCREEN_HEIGHT - 100, 200, 60 };
         Vector2 mousePoint = GetMousePosition();
