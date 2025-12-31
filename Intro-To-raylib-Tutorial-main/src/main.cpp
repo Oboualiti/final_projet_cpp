@@ -28,6 +28,7 @@ enum BusState {
     BUS_TO_SCHOOL, BUS_WAIT_AT_SCHOOL, BUS_LEAVING
 };
 
+// --- PROFESSIONAL TRAFFIC LIGHT UPDATE ---
 class TrafficLight {
 private:
     Rectangle box;
@@ -35,8 +36,10 @@ private:
     bool red;
     float cycleTime;
 public:
+    // Increased box size slightly to accommodate the new effects
     TrafficLight(float x, float y, float cycle = 5.0f)
-        : box({ x, y, 20, 60 }), timer(0.0f), red(true), cycleTime(cycle) {}
+        : box({ x, y, 30, 80 }), timer(0.0f), red(true), cycleTime(cycle) {}
+    
     void Update(float delta) {
         timer += delta;
         if (timer >= cycleTime) {
@@ -44,14 +47,62 @@ public:
             red = !red;
         }
     }
+
+    // --- NEW PROFESSIONAL DRAW METHOD ---
     void Draw() const {
-        DrawRectangleRec(box, DARKGRAY);
-        DrawCircle((int)(box.x + 10), (int)(box.y + 15), 8.0f, red ? RED : Fade(RED, 0.3f));
-        DrawCircle((int)(box.x + 10), (int)(box.y + 45), 8.0f, !red ? GREEN : Fade(GREEN, 0.3f));
+        // Define colors for professionalism
+        Color casingColor = { 30, 30, 30, 255 };   // Dark charcoal metal
+        Color trimColor = { 70, 70, 70, 255 };     // Lighter gray edge
+        Color offRed = { 50, 0, 0, 255 };          // Dark unlit glass
+        Color offGreen = { 0, 50, 0, 255 };        // Dark unlit glass
+        Color glassShine = { 255, 255, 255, 200 }; // Specular highlight
+
+        // 1. Draw Housing (Casing) with rounded corners and trim
+        DrawRectangleRounded(box, 0.3f, 10, casingColor);
+        DrawRectangleRoundedLines(box, 0.3f, 3.0f, trimColor);
+
+        // Calculate positions and size for lights
+        float centerX = box.x + box.width / 2;
+        float lightRadius = 12.0f;
+        Vector2 redPos = { centerX, box.y + box.height / 4 };
+        Vector2 greenPos = { centerX, box.y + (box.height / 4) * 3 };
+
+        // 2. Draw the "Visors" (hoods above lights)
+        DrawRectangle(box.x - 2, redPos.y - lightRadius - 5, box.width + 4, 4, trimColor);
+        DrawRectangle(box.x - 2, greenPos.y - lightRadius - 5, box.width + 4, 4, trimColor);
+
+        // 3. Draw the inactive lens bases (dark glass)
+        DrawCircleV(redPos, lightRadius, offRed);
+        DrawCircleLines((int)redPos.x, (int)redPos.y, lightRadius, BLACK); // Thin outline
+
+        DrawCircleV(greenPos, lightRadius, offGreen);
+        DrawCircleLines((int)greenPos.x, (int)greenPos.y, lightRadius, BLACK); // Thin outline
+
+        // 4. Draw the ACTIVE light with effects
+        if (red) {
+            // Red ON
+            // Glow Halo (Bloom effect) behind the light
+            DrawCircleGradient((int)redPos.x, (int)redPos.y, lightRadius * 2.5f, Fade(RED, 0.5f), Fade(RED, 0.0f));
+            // The bright lens
+            DrawCircleV(redPos, lightRadius, RED);
+            // Specular reflection highlight (shiny glass look)
+            DrawCircle((int)redPos.x - 4, (int)redPos.y - 4, 3.0f, glassShine);
+        } else {
+            // Green ON
+            // Glow Halo
+            DrawCircleGradient((int)greenPos.x, (int)greenPos.y, lightRadius * 2.5f, Fade(GREEN, 0.5f), Fade(GREEN, 0.0f));
+            // The bright lens
+            DrawCircleV(greenPos, lightRadius, GREEN);
+            // Specular reflection highlight
+            DrawCircle((int)greenPos.x - 4, (int)greenPos.y - 4, 3.0f, glassShine);
+        }
     }
+    // ------------------------------------
+
     bool IsRed() const { return red; }
+    // Adjusted stop line calculation for new box width
     float GetStopLineX(bool rightToLeft) const {
-        return rightToLeft ? (box.x - 40) : (box.x + box.width + 40);
+        return rightToLeft ? (box.x - 30) : (box.x + box.width + 30);
     }
 };
 
@@ -152,7 +203,6 @@ public:
                 moving = false;
                 stateTimer += GetFrameTime(); if (stateTimer >= 5.0f) { state = TO_HOSPITAL; moving = true; } break;
             case TO_HOSPITAL: 
-                // AMBULANCE BRAKES IF CAR IS IN FRONT (prevent collision)
                 if (!forcedStop) {
                     if (x > 80) x -= speed; 
                     else { state = WAIT_AT_HOSPITAL; moving = false; stateTimer = 0.0f; } 
@@ -233,7 +283,8 @@ private:
     Accident currentAccident;
 
 public:
-    Simulation() : lightTop(WORLD_WIDTH / 2 - 80, ROAD_Y_TOP - 80, 5.0f), lightBottom(WORLD_WIDTH / 2 - 150, ROAD_Y_BOTTOM + ROAD_HEIGHT + 20, 5.0f), carSpawnTimerTop(0.0f), carSpawnTimerBottom(0.0f) {
+    // Updated position for lightTop to account for new size
+    Simulation() : lightTop(WORLD_WIDTH / 2 - 80, ROAD_Y_TOP - 100, 5.0f), lightBottom(WORLD_WIDTH / 2 - 150, ROAD_Y_BOTTOM + ROAD_HEIGHT + 20, 5.0f), carSpawnTimerTop(0.0f), carSpawnTimerBottom(0.0f) {
         for (int i = 0; i < 3; i++) { laneYTop[i] = (float)ROAD_Y_TOP + 10.0f + i * (float)LANE_HEIGHT; laneYBottom[i] = (float)ROAD_Y_BOTTOM + 10.0f + i * (float)LANE_HEIGHT; }
         currentAccident = { false, false, 0, 0, nullptr, nullptr };
     }
@@ -361,14 +412,12 @@ public:
         for (size_t i = 0; i < vehiclesBottom.size(); ++i) {
             auto& v = vehiclesBottom[i]; if (v->isCrashed || v->isTowed) continue; 
             
-            // --- UPDATED YIELD LOGIC ---
-            // Cars now yield to the ambulance regardless of whether it is moving or stopped.
             if (!v->isReckless && !v->laneLock && !v->HasChangedLane()) {
                 auto tryYield = [&](Vehicle* emergencyVehicle) {
-                    if (emergencyVehicle) { // Removed IsMoving() check so they yield to stopped ambulances too
+                    if (emergencyVehicle) { 
                          if (fabs(v->GetTargetY() - emergencyVehicle->GetTargetY()) < 5.0f) {
                              float dist = emergencyVehicle->GetX() - v->GetX();
-                             if (dist > 0 && dist < 450.0f) { // Increased distance slightly to 450
+                             if (dist > 0 && dist < 450.0f) { 
                                  int currentLaneIdx = 0; if (fabs(v->GetY() - laneYBottom[1]) < 5) currentLaneIdx = 1; if (fabs(v->GetY() - laneYBottom[2]) < 5) currentLaneIdx = 2;
                                  int targetLane = (currentLaneIdx + 1) % 3; v->SetTargetY(laneYBottom[targetLane]); v->SetChangedLane(true);
                              }
@@ -468,6 +517,27 @@ public:
         lightBottom.Draw();
         
         DrawTexture(hospitalTexture, 10, ROAD_Y_BOTTOM + ROAD_HEIGHT + 10, WHITE);
+
+        // --- ARROWS & LABELS ---
+        float time = (float)GetTime();
+        float bounce = sinf(time * 6.0f) * 8.0f; 
+
+        // 1. HOSPITAL ARROW (Red)
+        float hospCenterX = 75.0f; 
+        float hospBaseY = 350.0f + bounce;
+        Color arrowCol = Fade(RED, 0.8f); 
+        DrawRectangle(hospCenterX - 10, hospBaseY, 20, 40, arrowCol);
+        DrawTriangle({ hospCenterX, hospBaseY + 70 }, { hospCenterX + 25, hospBaseY + 40 }, { hospCenterX - 25, hospBaseY + 40 }, arrowCol);
+        DrawText("HOSPITAL", hospCenterX - 40, hospBaseY - 30, 20, RED);
+
+        // 2. SCHOOL ARROW (Orange)
+        float schoolCenterX = WORLD_WIDTH / 2 - 65.0f;
+        float schoolBaseY = 350.0f + bounce; 
+        Color schoolArrowCol = Fade(ORANGE, 0.8f);
+        DrawRectangle(schoolCenterX - 10, schoolBaseY, 20, 40, schoolArrowCol);
+        DrawTriangle({ schoolCenterX, schoolBaseY + 70 }, { schoolCenterX + 25, schoolBaseY + 40 }, { schoolCenterX - 25, schoolBaseY + 40 }, schoolArrowCol);
+        DrawText("SCHOOL", schoolCenterX - 35, schoolBaseY - 30, 20, ORANGE);
+        // -----------------------
         
         // BOTTOM HOUSES
         DrawTexture(houseTextures[1], -1500, 440, WHITE);
