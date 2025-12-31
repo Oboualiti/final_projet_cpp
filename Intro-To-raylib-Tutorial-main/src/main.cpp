@@ -21,28 +21,18 @@ constexpr float SAFE_DISTANCE = 45.0f;
 constexpr int ROAD_Y_TOP = 110;
 constexpr int ROAD_Y_BOTTOM = 280;
 
-// --- FIX: ROBUST STAR DRAWING ---
-// Draws triangles in both winding orders to guarantee visibility
+// --- UTILITY: DRAW STAR ---
 void DrawStar(int cx, int cy, float outerRadius, float innerRadius, Color color) {
     Vector2 points[10];
-    Vector2 center = { (float)cx, (float)cy };
-    
-    // Calculate the 10 points of the star
     for (int i = 0; i < 10; i++) {
-        float angle = -PI / 2.0f + i * (PI / 5.0f); // Start at top (-90 deg)
+        float angle = -PI / 2.0f + i * (PI / 5.0f);
         float r = (i % 2 == 0) ? outerRadius : innerRadius;
         points[i].x = cx + cosf(angle) * r;
         points[i].y = cy + sinf(angle) * r;
     }
-    
-    // Draw triangles connecting center to points
     for (int i = 0; i < 10; i++) {
-        Vector2 p1 = points[i];
-        Vector2 p2 = points[(i + 1) % 10];
-        
-        // Draw both windings to ensure it's not culled (invisible)
-        DrawTriangle(p1, p2, center, color); 
-        DrawTriangle(p2, p1, center, color); 
+        DrawTriangle(points[i], points[(i + 1) % 10], { (float)cx, (float)cy }, color);
+        DrawTriangle(points[(i + 1) % 10], points[i], { (float)cx, (float)cy }, color);
     }
 }
 
@@ -295,7 +285,6 @@ public:
         camera.zoom = 1.0f;
     }
 
-    // --- RESTART GAME LOGIC ---
     void Reset() {
         vehiclesTop.clear();
         vehiclesBottom.clear();
@@ -309,6 +298,9 @@ public:
         missionTimer = 0.0f;
         busCooldown = 15.0f;
         
+        // STOP THE SIREN IF RESETTING
+        StopSound(siren);
+
         camera.target = { WORLD_WIDTH / 2.0f, SCREEN_HEIGHT / 2.0f };
         camera.zoom = 1.0f;
     }
@@ -363,7 +355,9 @@ public:
     void CallAmbulance() {
         if (!currentAccident.active && !currentAccident.pending) TriggerRandomAccident(); 
         if (currentMission == MISSION_CALL_AMBULANCE) { currentMission = MISSION_NONE; }
-        PlaySound(siren);
+        
+        // DO NOT PlaySound here anymore. We handle it in Update for looping.
+        
         auto amb = std::make_unique<Ambulance>(WORLD_WIDTH + 1500, laneYBottom[1], 4.5f, false);
         if (currentAccident.active) { amb->AssignAccident(currentAccident.x, currentAccident.y); amb->SetTargetY(currentAccident.y); }
         vehiclesBottom.push_back(std::move(amb)); ambulanceActive = true;
@@ -445,6 +439,16 @@ public:
         for (auto& v : vehiclesBottom) { if (v->isTowed && v->myTower != nullptr) { v->SetX(v->myTower->GetX() + v->towOffsetX); v->SetY(v->myTower->GetY()); } }
 
         if (activeAmbulance) { 
+            // --- LOOPING SIREN LOGIC ---
+            // If active and not playing, play it
+            if (!IsSoundPlaying(siren)) PlaySound(siren);
+
+            // Stop siren if leaving or done
+            if (activeAmbulance->state == LEAVING && activeAmbulance->IsOffScreen()) {
+                 StopSound(siren);
+                 ambulanceActive = false;
+            }
+
             if (activeAmbulance->state == TO_HOSPITAL) {
                 if (currentAccident.active && !activeTow && currentMission == MISSION_NONE) {
                     currentMission = MISSION_CALL_TOW;
@@ -453,6 +457,10 @@ public:
                 activeAmbulance->SetTargetY(laneYBottom[2]); 
             }
             else if (activeAmbulance->state == TO_ACCIDENT && currentAccident.active) activeAmbulance->SetTargetY(currentAccident.y); 
+        } else {
+            // No ambulance? Stop sound.
+            if (IsSoundPlaying(siren)) StopSound(siren);
+            ambulanceActive = false;
         }
 
         for (size_t i = 0; i < vehiclesBottom.size(); ++i) {
@@ -524,9 +532,6 @@ public:
              }
              v->SetForcedStop(stop); v->Update(stop);
         }
-
-        ambulanceActive = (activeAmbulance != nullptr);
-        if (ambulanceActive) { screenAlertTimer += delta; if (screenAlertTimer >= 0.5f) { screenAlertOn = !screenAlertOn; screenAlertTimer = 0.0f; } } else { screenAlertOn = false; }
     }
 
     void DrawWorld() const {
@@ -570,8 +575,6 @@ public:
             float accX = currentAccident.x;
             float accY = currentAccident.y - 100.0f + bounce;
             Color accCol = Fade(RED, 0.9f);
-            
-            // Draw big red arrow pointing down at the crash
             DrawRectangle((int)accX - 10, (int)accY, 20, 40, accCol);
             DrawTriangle({ accX, accY + 70 }, { accX + 25, accY + 40 }, { accX - 25, accY + 40 }, accCol);
             DrawText("ACCIDENT!", (int)accX - 50, (int)accY - 30, 20, RED);
