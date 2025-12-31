@@ -1,0 +1,48 @@
+{
+  "screen": {
+    "width": 1600,
+    "height": 700,
+    "fps": 60
+  },
+
+  "world": {
+    "width": 4000
+  },
+
+  "road": {
+    "roadHeight": 140,
+    "laneHeight": 45,
+    "safeDistance": 45,
+    "topY": 110,
+    "bottomY": 280
+  },
+
+  "trafficLight": {
+    "cycleTime": 5.0
+  },
+
+  "vehicles": {
+    "car": {
+      "minSpeed": 2.0,
+      "maxSpeed": 2.5
+    },
+    "ambulance": {
+      "speed": 4.5,
+      "waitAtAccident": 5.0,
+      "waitAtHospital": 5.0
+    },
+    "towTruck": {
+      "speed": 2.5,
+      "workTime": 2.0
+    },
+    "schoolBus": {
+      "speed": 2.5,
+      "stopTime": 4.0
+    }
+  },
+
+  "spawn": {
+    "minDelay": 4.0,
+    "maxDelay": 7.0
+  }
+}
